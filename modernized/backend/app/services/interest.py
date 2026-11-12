@@ -30,7 +30,6 @@ def calculate_interest(store: Store, run_date: str | None = None) -> dict:
     run_date = (run_date or utcnow()[:10]).replace("-", "") + "00"
     accounts = store.query(
         "SELECT acct_id, group_id FROM accounts WHERE active_status='Y' ORDER BY acct_id")
-    suffix = 0
     posted = 0
     total_cents = 0
     for acct in accounts:
@@ -55,26 +54,29 @@ def calculate_interest(store: Store, run_date: str | None = None) -> dict:
                 Decimal(bal["bal_cents"]) * Decimal(rate_bp) / Decimal(120000))
             if monthly_cents == 0:
                 continue
-            # deterministic id per (date, acct, category): a repeated run on
-            # the same date re-posts nothing — mirrors the job being safe to
-            # restart after an abend.
-            suffix += 1
-            tran_id = f"I{run_date}{acct['acct_id']:05d}{bal['tran_cat_cd']:02d}"
-            if store.query_one("SELECT 1 FROM transactions WHERE tran_id=?",
-                               (tran_id,)):
-                continue
-            store.execute(
-                """INSERT INTO transactions
-                   (tran_id,type_cd,cat_cd,source,description,amount_cents,
-                    merchant_id,merchant_name,merchant_city,merchant_zip,
-                    card_num,orig_ts,proc_ts)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (tran_id, "01", 5, "System",
-                 f"Int. for a/c {acct['acct_id']}", monthly_cents, 0,
-                 "", "", "", card_num, utcnow(), utcnow()))
-            store.execute(
-                "UPDATE accounts SET curr_bal_cents = curr_bal_cents + ? WHERE acct_id=?",
-                (monthly_cents, acct["acct_id"]))
+            # deterministic id per (date, acct, type, category): a repeated
+            # run on the same date re-posts nothing — mirrors the job being
+            # safe to restart after an abend.
+            tran_id = (f"I{run_date}{acct['acct_id']:05d}"
+                       f"{bal['tran_type_cd']}{bal['tran_cat_cd']:02d}")
+            with store.atomic() as db:
+                if db.execute(
+                        "SELECT 1 FROM transactions WHERE tran_id=?",
+                        (tran_id,)).fetchone():
+                    continue
+                db.execute(
+                    """INSERT INTO transactions
+                       (tran_id,type_cd,cat_cd,source,description,amount_cents,
+                        merchant_id,merchant_name,merchant_city,merchant_zip,
+                        card_num,orig_ts,proc_ts)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (tran_id, "01", 5, "System",
+                     f"Int. for a/c {acct['acct_id']}", monthly_cents, 0,
+                     "", "", "", card_num, utcnow(), utcnow()))
+                db.execute(
+                    "UPDATE accounts SET curr_bal_cents = curr_bal_cents + ? "
+                    "WHERE acct_id=?",
+                    (monthly_cents, acct["acct_id"]))
             total_cents += monthly_cents
             posted += 1
     return {

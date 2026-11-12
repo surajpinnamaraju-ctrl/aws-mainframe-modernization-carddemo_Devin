@@ -13,7 +13,7 @@ beforeEach(() => { mockFetch.mockReset(); });
 describe("App", () => {
   it("renders sign-on screen", () => {
     render(<App />);
-    expect(screen.getByText("CardDemo Sign-on")).toBeInTheDocument();
+    expect(screen.getByText("01 / Sign on")).toBeInTheDocument();
     expect(screen.getByLabelText("User ID")).toBeInTheDocument();
   });
 
@@ -30,7 +30,7 @@ describe("App", () => {
     fireEvent.click(screen.getByText("Sign in"));
     await waitFor(() =>
       expect(screen.getByText(/Main Menu/)).toBeInTheDocument());
-    expect(screen.getByText("Test User (USER0001)")).toBeInTheDocument();
+    expect(screen.getByText("Test User · USER0001")).toBeInTheDocument();
     // regular users do not see admin-only items
     expect(screen.queryByText("User Admin")).not.toBeInTheDocument();
   });

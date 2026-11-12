@@ -107,6 +107,16 @@ CREATE TABLE IF NOT EXISTS pending_authorizations (
     merchant_id INTEGER, merchant_name TEXT, amount_cents INTEGER NOT NULL,
     status TEXT NOT NULL, match_flag TEXT, auth_ts TEXT, expiry_ts TEXT
 );
+CREATE TABLE IF NOT EXISTS user_keys (
+    user_id TEXT PRIMARY KEY,
+    key TEXT
+);
+
+CREATE TABLE IF NOT EXISTS seed_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+
 CREATE TABLE IF NOT EXISTS rejects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tran_id TEXT, reason TEXT, rejected_at TEXT
@@ -156,9 +166,13 @@ class Store:
     def seed_all(self) -> None:
         """Load all seed files — equivalent of the IDCAMS/IEBGENER load JCLs.
 
-        Skipped when the store already has data so a restart does not reset
-        balances or requeue the daily feed."""
-        if self.query_one("SELECT 1 FROM users LIMIT 1") is not None:
+        Skipped when seeding previously completed (a marker row is written
+        last), so a restart does not reset balances or requeue the daily
+        feed; a partial seed leaves no marker and is redone — every insert
+        is INSERT OR REPLACE, so re-seeding is idempotent."""
+        if self.query_one(
+                "SELECT 1 FROM seed_meta WHERE key='seeded' AND value='1'"
+                ) is not None:
             self.seeded = True
             return
         d = self.seed_dir
@@ -220,6 +234,8 @@ class Store:
                 (tb["acct_id"], tb["tran_type_cd"], tb["tran_cat_cd"],
                  cents(tb["tran_cat_bal"])))
         self._seed_pending_authorizations()
+        self.execute(
+            "INSERT OR REPLACE INTO seed_meta VALUES ('seeded', '1')")
         self.seeded = True
 
     def _seed_pending_authorizations(self) -> None:

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..models import (TranCategory, TranCategoryUpsert, TranType,
                       TranTypeUpsert, User, UserUpsert)
-from ..security import admin_user
+from ..security import admin_user, bump_user_key
 from ..store import Store
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -43,6 +43,7 @@ def add_user(user_id: str, body: UserUpsert,
     store.execute("INSERT INTO users VALUES (?,?,?,?,?)",
                   (user_id, body.first_name, body.last_name,
                    body.password.upper(), body.user_type))
+    bump_user_key(store, user_id)
     return _user(store.query_one("SELECT * FROM users WHERE user_id=?",
                                  (user_id,)))
 
@@ -57,17 +58,28 @@ def update_user(user_id: str, body: UserUpsert,
     if existing is None:
         raise HTTPException(status_code=404, detail="User not found")
     if existing["user_type"] == "A" and body.user_type != "A":
-        admins = store.query_one(
-            "SELECT COUNT(*) AS c FROM users WHERE user_type='A'")["c"]
-        if admins <= 1:
-            raise HTTPException(
-                status_code=422,
-                detail="Cannot demote the last admin user")
-    store.execute(
-        """UPDATE users SET first_name=?, last_name=?, password=?, user_type=?
-           WHERE user_id=?""",
-        (body.first_name, body.last_name, body.password.upper(),
-         body.user_type, user_id))
+        # count + update under the store lock so two concurrent demotions
+        # cannot both see "2 admins" and strip the last one.
+        with store.atomic() as db:
+            admins = db.execute(
+                "SELECT COUNT(*) AS c FROM users WHERE user_type='A'"
+                ).fetchone()["c"]
+            if admins <= 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Cannot demote the last admin user")
+            db.execute(
+                """UPDATE users SET first_name=?, last_name=?, password=?,
+                   user_type=? WHERE user_id=?""",
+                (body.first_name, body.last_name, body.password.upper(),
+                 body.user_type, user_id))
+    else:
+        store.execute(
+            """UPDATE users SET first_name=?, last_name=?, password=?,
+               user_type=? WHERE user_id=?""",
+            (body.first_name, body.last_name, body.password.upper(),
+             body.user_type, user_id))
+    bump_user_key(store, user_id)
     return _user(store.query_one("SELECT * FROM users WHERE user_id=?",
                                  (user_id,)))
 
@@ -86,6 +98,7 @@ def delete_user(user_id: str, store: Store = Depends(get_store),
             raise HTTPException(status_code=422,
                                 detail="Cannot delete the last admin user")
     store.execute("DELETE FROM users WHERE user_id=?", (user_id,))
+    bump_user_key(store, user_id)
     return {"status": "deleted", "user_id": user_id}
 
 

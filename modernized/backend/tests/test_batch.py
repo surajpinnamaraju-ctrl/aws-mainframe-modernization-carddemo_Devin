@@ -193,7 +193,8 @@ def test_demoted_admin_loses_access(client, admin_headers):
     client.put("/api/admin/users/ADMINX1", headers=admin_headers,
                json={"first_name": "X", "last_name": "Y",
                      "password": "p1", "user_type": "U"})
-    assert client.get("/api/admin/users", headers=tok).status_code == 403
+    # key rotation kills the session outright — stronger than a 403
+    assert client.get("/api/admin/users", headers=tok).status_code == 401
 
 
 def test_report_lines_have_card_and_ts(client, admin_headers):
@@ -210,3 +211,29 @@ def test_reseed_skips_existing_data(store):
     store.seed_all()
     row = store.query_one("SELECT curr_bal_cents FROM accounts WHERE acct_id=1")
     assert row["curr_bal_cents"] == 99999
+
+
+def test_recreated_user_kills_old_session(client, admin_headers):
+    client.post("/api/admin/users?user_id=REUSE01", headers=admin_headers,
+                json={"first_name": "R", "last_name": "U",
+                      "password": "p1", "user_type": "U"})
+    r = client.post("/api/auth/login",
+                    json={"user_id": "REUSE01", "password": "P1"})
+    tok = {"Authorization": f"Bearer {r.json()['token']}"}
+    assert client.get("/api/accounts/1", headers=tok).status_code == 200
+    client.delete("/api/admin/users/REUSE01", headers=admin_headers)
+    client.post("/api/admin/users?user_id=REUSE01", headers=admin_headers,
+                json={"first_name": "R", "last_name": "U",
+                      "password": "p1", "user_type": "A"})
+    assert client.get("/api/accounts/1", headers=tok).status_code == 401
+
+
+def test_deleted_user_loses_session(client, admin_headers):
+    client.post("/api/admin/users?user_id=DUSER01", headers=admin_headers,
+                json={"first_name": "D", "last_name": "U",
+                      "password": "p1", "user_type": "U"})
+    r = client.post("/api/auth/login",
+                    json={"user_id": "DUSER01", "password": "P1"})
+    tok = {"Authorization": f"Bearer {r.json()['token']}"}
+    client.delete("/api/admin/users/DUSER01", headers=admin_headers)
+    assert client.get("/api/accounts/1", headers=tok).status_code == 401

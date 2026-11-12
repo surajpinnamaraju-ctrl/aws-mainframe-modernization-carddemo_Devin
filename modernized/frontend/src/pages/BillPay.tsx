@@ -17,7 +17,8 @@ export default function BillPay() {
   };
 
   const pay = async () => {
-    if (!account || String(account.acct_id) !== acctId.trim()) {
+    if (!account || Number.isNaN(Number(acctId.trim())) ||
+        account.acct_id !== Number(acctId.trim())) {
       setError("View the account's balance before paying it.");
       return;
     }
