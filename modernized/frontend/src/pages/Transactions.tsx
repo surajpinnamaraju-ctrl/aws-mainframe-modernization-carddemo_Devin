@@ -129,7 +129,7 @@ export default function Transactions() {
       )}
 
       {selected && (
-        <div className="card" style={{ background: "#f8fafc" }}>
+        <div className="card" style={{ background: "rgba(6,15,14,0.8)" }}>
           <h3 style={{ marginTop: 0, fontSize: 14 }}>Transaction {selected.tran_id}</h3>
           <div className="grid2">
             <div className="kv"><b>Card</b><span>{selected.card_num}</span></div>

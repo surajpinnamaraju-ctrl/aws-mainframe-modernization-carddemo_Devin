@@ -28,8 +28,9 @@ export default function Login({ onLogin }: { onLogin: (s: Session) => void }) {
   return (
     <div className="login-wrap">
       <div className="card login-card">
-        <h2>CardDemo Sign-on</h2>
-        <p style={{ fontSize: 13, color: "#667" }}>
+        <p className="eyebrow">01 / Sign on</p>
+        <h2 className="login-title">CardDemo</h2>
+        <p className="lead">
           Modernized from the CICS COSGN00C transaction.
         </p>
         {error && <div className="error" role="alert">{error}</div>}

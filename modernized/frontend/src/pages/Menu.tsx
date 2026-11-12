@@ -20,8 +20,9 @@ export default function Menu({ session, go }: { session: Session; go: (p: Page) 
     <div className="card">
       <h2>Main Menu — COMEN01C</h2>
       <div className="menu-grid">
-        {items.map((i) => (
+        {items.map((i, n) => (
           <button key={i.page} className="menu-item" onClick={() => go(i.page)}>
+            <span className="num">{String(n + 1).padStart(2, "0")}</span>
             <h3>{i.title}</h3>
             <p>{i.desc}</p>
           </button>

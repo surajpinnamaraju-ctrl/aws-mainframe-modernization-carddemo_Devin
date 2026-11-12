@@ -67,14 +67,17 @@ export default function App() {
   return (
     <>
       <header>
-        <h1>CardDemo</h1>
+        <div className="brand">
+          <h1>CARDDEMO</h1>
+          <div className="tagline">Modernized mainframe</div>
+        </div>
         <nav>
           {nav.map((n) => (
             <button key={n.key} className={page === n.key ? "active" : ""}
                     onClick={() => setPage(n.key)}>{n.label}</button>
           ))}
         </nav>
-        <span>{session.first_name} {session.last_name} ({session.user_id})</span>
+        <span className="who">{session.first_name} {session.last_name} · {session.user_id}</span>
         <button className="logout" onClick={logout}>Sign off</button>
       </header>
       <main>{pages[page]}</main>
