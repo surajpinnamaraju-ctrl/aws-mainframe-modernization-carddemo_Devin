@@ -169,10 +169,22 @@ class Store:
         Skipped when seeding previously completed (a marker row is written
         last), so a restart does not reset balances or requeue the daily
         feed; a partial seed leaves no marker and is redone — every insert
-        is INSERT OR REPLACE, so re-seeding is idempotent."""
-        if self.query_one(
-                "SELECT 1 FROM seed_meta WHERE key='seeded' AND value='1'"
-                ) is not None:
+        is INSERT OR REPLACE, so re-seeding is idempotent. Databases seeded
+        before the marker existed have no marker, so the completeness probe
+        checks that every seeded table holds rows before skipping."""
+        seeded_tables = ("users", "customers", "accounts", "cards",
+                         "card_xrefs", "daily_transactions", "tran_types",
+                         "tran_categories", "disclosure_groups",
+                         "tran_cat_balances", "pending_authorizations")
+        marker = self.query_one(
+            "SELECT 1 FROM seed_meta WHERE key='seeded' AND value='1'")
+        complete = marker is not None or all(
+            self.query_one(f"SELECT 1 FROM {t} LIMIT 1") is not None
+            for t in seeded_tables)
+        if complete:
+            if marker is None:
+                self.execute(
+                    "INSERT OR REPLACE INTO seed_meta VALUES ('seeded', '1')")
             self.seeded = True
             return
         d = self.seed_dir

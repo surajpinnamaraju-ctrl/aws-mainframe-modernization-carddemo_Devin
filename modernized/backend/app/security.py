@@ -24,21 +24,25 @@ def bump_user_key(store: Store, user_id: str) -> None:
                   (user_id, secrets.token_urlsafe(8)))
 
 
-def create_session(store: Store, user_id: str) -> dict:
-    row = store.query_one(
-        "SELECT user_id, first_name, last_name, user_type FROM users WHERE user_id=?",
-        (user_id,))
-    key_row = store.query_one("SELECT key FROM user_keys WHERE user_id=?",
-                              (user_id,))
-    if key_row is None:
-        bump_user_key(store, user_id)
-        key_row = store.query_one("SELECT key FROM user_keys WHERE user_id=?",
-                                  (user_id,))
+def ensure_user_key(db, user_id: str) -> str:
+    """Fetch (or lazily create) the user's session key. INSERT OR IGNORE
+    means two concurrent first logins converge on the same key — the loser
+    re-reads instead of clobbering the winner's session."""
+    db.execute("INSERT OR IGNORE INTO user_keys VALUES (?,?)",
+               (user_id, secrets.token_urlsafe(8)))
+    return db.execute("SELECT key FROM user_keys WHERE user_id=?",
+                      (user_id,)).fetchone()["key"]
+
+
+def create_session(row, user_key: str) -> dict:
+    """Build a session from the users row the password was verified against
+    and that row's live key — caller runs both reads inside store.atomic()
+    so a recreate can't interleave between verify and session build."""
     token = secrets.token_urlsafe(24)
     session = {
         "token": token,
         "user_id": row["user_id"],
-        "user_key": key_row["key"],
+        "user_key": user_key,
         "first_name": row["first_name"],
         "last_name": row["last_name"],
         "user_type": row["user_type"],

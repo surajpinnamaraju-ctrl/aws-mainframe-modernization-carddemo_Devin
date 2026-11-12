@@ -39,10 +39,8 @@ def calculate_interest(store: Store, run_date: str | None = None) -> dict:
             (acct["acct_id"],))
         if not bal_rows:
             continue
-        xref = store.query_one(
-            "SELECT card_num FROM card_xrefs WHERE acct_id=? LIMIT 1",
-            (acct["acct_id"],))
-        card_num = xref["card_num"] if xref else ""
+        # eligible categories first — the dedupe counts these, not bal_rows
+        eligible = []
         for bal in bal_rows:
             rate_bp = _rate_bp(store, acct["group_id"] or "DEFAULT",
                                bal["tran_type_cd"], bal["tran_cat_cd"])
@@ -54,6 +52,25 @@ def calculate_interest(store: Store, run_date: str | None = None) -> dict:
                 Decimal(bal["bal_cents"]) * Decimal(rate_bp) / Decimal(120000))
             if monthly_cents == 0:
                 continue
+            eligible.append((bal, monthly_cents))
+        if not eligible:
+            continue
+        # upgrade-safe dedupe: same-day interest rows written by an older id
+        # scheme share source+description+date — if that count already covers
+        # every eligible category, the rerun posts nothing.
+        run_ymd = f"{run_date[:4]}-{run_date[4:6]}-{run_date[6:8]}"
+        prior = store.query_one(
+            """SELECT COUNT(*) AS c FROM transactions
+               WHERE source='System' AND description=?
+                 AND substr(orig_ts, 1, 10)=?""",
+            (f"Int. for a/c {acct['acct_id']}", run_ymd))["c"]
+        if prior >= len(eligible):
+            continue
+        xref = store.query_one(
+            "SELECT card_num FROM card_xrefs WHERE acct_id=? LIMIT 1",
+            (acct["acct_id"],))
+        card_num = xref["card_num"] if xref else ""
+        for bal, monthly_cents in eligible:
             # deterministic id per (date, acct, type, category): a repeated
             # run on the same date re-posts nothing — mirrors the job being
             # safe to restart after an abend.
