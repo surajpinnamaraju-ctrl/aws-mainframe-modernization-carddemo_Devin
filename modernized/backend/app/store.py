@@ -187,19 +187,24 @@ class Store:
                     "INSERT OR REPLACE INTO seed_meta VALUES ('seeded', '1')")
             self.seeded = True
             return
+        with self.atomic() as db:
+            self._seed_body(db)
+        self.seeded = True
+
+    def _seed_body(self, db) -> None:
         d = self.seed_dir
         for u in seed.parse_users(d / "usrsec.txt"):
-            self.execute(
+            db.execute(
                 "INSERT OR REPLACE INTO users VALUES (?,?,?,?,?)",
                 (u["user_id"], u["first_name"], u["last_name"],
                  u["password"], u["user_type"]))
         for c in seed.parse_customers(d / "custdata.txt"):
-            self.execute(
+            db.execute(
                 """INSERT OR REPLACE INTO customers VALUES
                    (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 tuple(c.values()))
         for a in seed.parse_accounts(d / "acctdata.txt"):
-            self.execute(
+            db.execute(
                 """INSERT OR REPLACE INTO accounts VALUES
                    (?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (a["acct_id"], a["active_status"], cents(a["curr_bal"]),
@@ -208,17 +213,17 @@ class Store:
                  cents(a["curr_cyc_credit"]), cents(a["curr_cyc_debit"]),
                  a["addr_zip"], a["group_id"]))
         for cd in seed.parse_cards(d / "carddata.txt"):
-            self.execute(
+            db.execute(
                 "INSERT OR REPLACE INTO cards VALUES (?,?,?,?,?,?)",
                 (cd["card_num"], cd["acct_id"], cd["cvv_cd"],
                  cd["embossed_name"], cd["expiration_date"],
                  cd["active_status"]))
         for x in seed.parse_card_xrefs(d / "cardxref.txt"):
-            self.execute(
+            db.execute(
                 "INSERT OR REPLACE INTO card_xrefs VALUES (?,?,?)",
                 (x["card_num"], x["cust_id"], x["acct_id"]))
         for t in seed.parse_daily_transactions(d / "dailytran.txt"):
-            self.execute(
+            db.execute(
                 """INSERT OR REPLACE INTO daily_transactions
                    (tran_id,type_cd,cat_cd,source,description,amount_cents,
                     merchant_id,merchant_name,merchant_city,merchant_zip,
@@ -229,35 +234,35 @@ class Store:
                  t["merchant_name"], t["merchant_city"], t["merchant_zip"],
                  t["card_num"], t["orig_ts"], t["proc_ts"]))
         for tt in seed.parse_tran_types(d / "trantype.txt"):
-            self.execute("INSERT OR REPLACE INTO tran_types VALUES (?,?)",
+            db.execute("INSERT OR REPLACE INTO tran_types VALUES (?,?)",
                          (tt["tran_type_cd"], tt["tran_type_desc"]))
         for tc in seed.parse_tran_categories(d / "trancatg.txt"):
-            self.execute("INSERT OR REPLACE INTO tran_categories VALUES (?,?,?)",
+            db.execute("INSERT OR REPLACE INTO tran_categories VALUES (?,?,?)",
                          (tc["tran_type_cd"], tc["tran_cat_cd"],
                           tc["tran_cat_type_desc"]))
         for dg in seed.parse_disclosure_groups(d / "discgrp.txt"):
-            self.execute(
+            db.execute(
                 "INSERT OR REPLACE INTO disclosure_groups VALUES (?,?,?,?)",
                 (dg["acct_group_id"], dg["tran_type_cd"], dg["tran_cat_cd"],
                  int((dg["int_rate"] * 100).to_integral_value())))
         for tb in seed.parse_tran_cat_balances(d / "tcatbal.txt"):
-            self.execute(
+            db.execute(
                 "INSERT OR REPLACE INTO tran_cat_balances VALUES (?,?,?,?)",
                 (tb["acct_id"], tb["tran_type_cd"], tb["tran_cat_cd"],
                  cents(tb["tran_cat_bal"])))
-        self._seed_pending_authorizations()
-        self.execute(
+        self._seed_pending_authorizations(db)
+        db.execute(
             "INSERT OR REPLACE INTO seed_meta VALUES ('seeded', '1')")
-        self.seeded = True
 
-    def _seed_pending_authorizations(self) -> None:
+    def _seed_pending_authorizations(self, db) -> None:
         """Deterministic pending-auth rows standing in for the IMS/DB2 module."""
         now = datetime.now(timezone.utc)
-        cards = self.query("SELECT card_num, acct_id FROM cards ORDER BY card_num")
+        cards = db.execute(
+            "SELECT card_num, acct_id FROM cards ORDER BY card_num").fetchall()
         for i, row in enumerate(cards[:8]):
             status = "PENDING" if i % 3 else "EXPIRED"
             expiry = now - timedelta(hours=1) if status == "EXPIRED" else now + timedelta(hours=24)
-            self.execute(
+            db.execute(
                 "INSERT OR REPLACE INTO pending_authorizations VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (f"PA{i + 1:08d}", row["card_num"], row["acct_id"],
                  900000000 + i, f"Merchant {i + 1}", 12500 + i * 2500,

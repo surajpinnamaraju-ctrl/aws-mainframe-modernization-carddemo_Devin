@@ -55,17 +55,6 @@ def calculate_interest(store: Store, run_date: str | None = None) -> dict:
             eligible.append((bal, monthly_cents))
         if not eligible:
             continue
-        # upgrade-safe dedupe: same-day interest rows written by an older id
-        # scheme share source+description+date — if that count already covers
-        # every eligible category, the rerun posts nothing.
-        run_ymd = f"{run_date[:4]}-{run_date[4:6]}-{run_date[6:8]}"
-        prior = store.query_one(
-            """SELECT COUNT(*) AS c FROM transactions
-               WHERE source='System' AND description=?
-                 AND substr(orig_ts, 1, 10)=?""",
-            (f"Int. for a/c {acct['acct_id']}", run_ymd))["c"]
-        if prior >= len(eligible):
-            continue
         xref = store.query_one(
             "SELECT card_num FROM card_xrefs WHERE acct_id=? LIMIT 1",
             (acct["acct_id"],))
