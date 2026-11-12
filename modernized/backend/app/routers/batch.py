@@ -4,6 +4,8 @@ CBEXPORT/CBIMPORT, DALYREJS view, pending-auth purge (CBPAUP0C), audit dumps
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
@@ -139,13 +141,14 @@ def request_authorization(body: AuthorizeRequest,
                            (xref["acct_id"],))
     if acct is None or acct["active_status"] != "Y":
         raise HTTPException(status_code=422, detail="Account not active")
+    if body.amount <= 0:
+        raise HTTPException(status_code=422,
+                            detail="amount must be positive")
     amount_cents = int(round(body.amount * 100))
     limit = acct["credit_limit_cents"]
     status = "APPROVED" if acct["curr_bal_cents"] + amount_cents <= limit \
         else "DECLINED"
     auth_id = f"PA{utcnow().replace(' ', '').replace('-', '').replace(':', '').replace('.', '')}"
-    expiry = utcnow()  # caller-visible auth ts; expiry = +24h
-    from datetime import datetime, timedelta, timezone
     expiry = (datetime.now(timezone.utc) + timedelta(hours=24)).strftime(
         "%Y-%m-%d %H:%M:%S.%f")
     store.execute(

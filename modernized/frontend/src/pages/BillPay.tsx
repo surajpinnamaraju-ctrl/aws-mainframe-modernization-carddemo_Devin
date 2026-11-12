@@ -17,10 +17,14 @@ export default function BillPay() {
   };
 
   const pay = async () => {
+    if (!account || String(account.acct_id) !== acctId.trim()) {
+      setError("View the account's balance before paying it.");
+      return;
+    }
     setError(""); setResult("");
     try {
       const r = await api<{ paid_amount: string; new_balance: string }>(
-        `/api/billpay/${acctId}?confirm=true`, { method: "POST" });
+        `/api/billpay/${account.acct_id}?confirm=true`, { method: "POST" });
       setResult(`Paid ${fmtMoney(r.paid_amount)} — new balance ${fmtMoney(r.new_balance)}.`);
       setAccount(null); setConfirm(false);
     } catch (e) { setError((e as Error).message); }

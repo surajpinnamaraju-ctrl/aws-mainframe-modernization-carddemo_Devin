@@ -248,12 +248,15 @@ class BillPayResult(BaseModel):
 class ReportLine(BaseModel):
     tran_id: str
     acct_id: int | None
+    card_num: str | None
     type_cd: str
     type_desc: str
     cat_cd: int
     cat_desc: str
     source: str
+    description: str | None
     amount: Decimal
+    orig_ts: str | None
 
 
 class TransactionReport(BaseModel):

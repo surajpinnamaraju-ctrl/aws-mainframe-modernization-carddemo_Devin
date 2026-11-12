@@ -46,6 +46,11 @@ def post_daily_transactions(store: Store) -> dict:
         if acct["active_status"] != "Y":
             rejects.append(_reject(store, tran_id, "Account not active"))
             continue
+        card = store.query_one(
+            "SELECT active_status FROM cards WHERE card_num=?", (card_num,))
+        if card is not None and card["active_status"] != "Y":
+            rejects.append(_reject(store, tran_id, "Card not active"))
+            continue
 
         if not store.query_one(
                 "SELECT 1 FROM tran_types WHERE tran_type_cd=?",
@@ -68,32 +73,31 @@ def post_daily_transactions(store: Store) -> dict:
             cyc_debit += row["amount_cents"]
         else:
             cyc_credit += -row["amount_cents"]
-        store.execute(
-            """UPDATE accounts SET curr_bal_cents=?, curr_cyc_debit_cents=?,
-               curr_cyc_credit_cents=? WHERE acct_id=?""",
-            (new_bal, cyc_debit, cyc_credit, acct["acct_id"]))
-
-        store.execute(
-            """INSERT INTO tran_cat_balances (acct_id, tran_type_cd, tran_cat_cd,
-               bal_cents) VALUES (?,?,?,?)
-               ON CONFLICT(acct_id, tran_type_cd, tran_cat_cd)
-               DO UPDATE SET bal_cents = bal_cents + excluded.bal_cents""",
-            (acct["acct_id"], row["type_cd"], row["cat_cd"],
-             row["amount_cents"]))
-
-        store.execute(
-            """INSERT INTO transactions
-               (tran_id,type_cd,cat_cd,source,description,amount_cents,
-                merchant_id,merchant_name,merchant_city,merchant_zip,
-                card_num,orig_ts,proc_ts)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (tran_id, row["type_cd"], row["cat_cd"], row["source"],
-             row["description"], row["amount_cents"], row["merchant_id"],
-             row["merchant_name"], row["merchant_city"], row["merchant_zip"],
-             card_num, row["orig_ts"], utcnow()))
-        store.execute(
-            "UPDATE daily_transactions SET posted=1 WHERE tran_id=?",
-            (tran_id,))
+        with store.atomic() as db:
+            db.execute(
+                """UPDATE accounts SET curr_bal_cents=?, curr_cyc_debit_cents=?,
+                   curr_cyc_credit_cents=? WHERE acct_id=?""",
+                (new_bal, cyc_debit, cyc_credit, acct["acct_id"]))
+            db.execute(
+                """INSERT INTO tran_cat_balances (acct_id, tran_type_cd,
+                   tran_cat_cd, bal_cents) VALUES (?,?,?,?)
+                   ON CONFLICT(acct_id, tran_type_cd, tran_cat_cd)
+                   DO UPDATE SET bal_cents = bal_cents + excluded.bal_cents""",
+                (acct["acct_id"], row["type_cd"], row["cat_cd"],
+                 row["amount_cents"]))
+            db.execute(
+                """INSERT INTO transactions
+                   (tran_id,type_cd,cat_cd,source,description,amount_cents,
+                    merchant_id,merchant_name,merchant_city,merchant_zip,
+                    card_num,orig_ts,proc_ts)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (tran_id, row["type_cd"], row["cat_cd"], row["source"],
+                 row["description"], row["amount_cents"], row["merchant_id"],
+                 row["merchant_name"], row["merchant_city"], row["merchant_zip"],
+                 card_num, row["orig_ts"], utcnow()))
+            db.execute(
+                "UPDATE daily_transactions SET posted=1 WHERE tran_id=?",
+                (tran_id,))
         posted += 1
 
     return {"posted": posted, "rejected": len(rejects), "rejects": rejects}
@@ -117,6 +121,10 @@ def add_daily_transaction(store: Store, txn: dict) -> dict:
                            (xref["acct_id"],))
     if acct is None or acct["active_status"] != "Y":
         raise ValueError("Account not found or not active")
+    card = store.query_one(
+        "SELECT active_status FROM cards WHERE card_num=?", (txn["card_num"],))
+    if card is not None and card["active_status"] != "Y":
+        raise ValueError("Card not active")
     if not store.query_one("SELECT 1 FROM tran_types WHERE tran_type_cd=?",
                            (txn["type_cd"],)):
         raise ValueError(f"Invalid transaction type {txn['type_cd']}")

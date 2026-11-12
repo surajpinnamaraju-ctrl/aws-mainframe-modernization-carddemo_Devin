@@ -52,8 +52,17 @@ def update_user(user_id: str, body: UserUpsert,
                 store: Store = Depends(get_store),
                 _admin: dict = Depends(admin_user)):
     user_id = user_id.upper()
-    if not store.query_one("SELECT 1 FROM users WHERE user_id=?", (user_id,)):
+    existing = store.query_one("SELECT user_type FROM users WHERE user_id=?",
+                               (user_id,))
+    if existing is None:
         raise HTTPException(status_code=404, detail="User not found")
+    if existing["user_type"] == "A" and body.user_type != "A":
+        admins = store.query_one(
+            "SELECT COUNT(*) AS c FROM users WHERE user_type='A'")["c"]
+        if admins <= 1:
+            raise HTTPException(
+                status_code=422,
+                detail="Cannot demote the last admin user")
     store.execute(
         """UPDATE users SET first_name=?, last_name=?, password=?, user_type=?
            WHERE user_id=?""",

@@ -55,14 +55,14 @@ def calculate_interest(store: Store, run_date: str | None = None) -> dict:
                 Decimal(bal["bal_cents"]) * Decimal(rate_bp) / Decimal(120000))
             if monthly_cents == 0:
                 continue
-            # keep suffix unique across repeated runs on the same date
-            while True:
-                suffix += 1
-                tran_id = f"{run_date}{suffix:04d}"
-                if not store.query_one(
-                        "SELECT 1 FROM transactions WHERE tran_id=?",
-                        (tran_id,)):
-                    break
+            # deterministic id per (date, acct, category): a repeated run on
+            # the same date re-posts nothing — mirrors the job being safe to
+            # restart after an abend.
+            suffix += 1
+            tran_id = f"I{run_date}{acct['acct_id']:05d}{bal['tran_cat_cd']:02d}"
+            if store.query_one("SELECT 1 FROM transactions WHERE tran_id=?",
+                               (tran_id,)):
+                continue
             store.execute(
                 """INSERT INTO transactions
                    (tran_id,type_cd,cat_cd,source,description,amount_cents,

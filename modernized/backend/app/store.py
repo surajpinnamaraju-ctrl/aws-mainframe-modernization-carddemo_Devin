@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -130,6 +131,18 @@ class Store:
         with self._lock, self._db:
             return self._db.execute(sql, params)
 
+    @contextmanager
+    def atomic(self):
+        """Run several statements as one commit — the unit of work a CICS
+        SYNCPOINT wraps."""
+        with self._lock:
+            try:
+                yield self._db
+                self._db.commit()
+            except Exception:
+                self._db.rollback()
+                raise
+
     def query(self, sql: str, params=()) -> list[sqlite3.Row]:
         with self._lock:
             return self._db.execute(sql, params).fetchall()
@@ -141,7 +154,13 @@ class Store:
     # ------------------------------------------------------------- seeding
 
     def seed_all(self) -> None:
-        """Load all seed files — equivalent of the IDCAMS/IEBGENER load JCLs."""
+        """Load all seed files — equivalent of the IDCAMS/IEBGENER load JCLs.
+
+        Skipped when the store already has data so a restart does not reset
+        balances or requeue the daily feed."""
+        if self.query_one("SELECT 1 FROM users LIMIT 1") is not None:
+            self.seeded = True
+            return
         d = self.seed_dir
         for u in seed.parse_users(d / "usrsec.txt"):
             self.execute(

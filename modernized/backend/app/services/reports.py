@@ -33,12 +33,15 @@ def transaction_report(store: Store, start_date: str, end_date: str) -> dict:
         lines.append({
             "tran_id": row["tran_id"],
             "acct_id": row["acct_id"],
+            "card_num": row["card_num"],
             "type_cd": row["type_cd"],
             "type_desc": tt["tran_type_desc"] if tt else "",
             "cat_cd": row["cat_cd"],
             "cat_desc": tc["tran_cat_type_desc"] if tc else "",
             "source": row["source"],
+            "description": row["description"],
             "amount": amount,
+            "orig_ts": row["orig_ts"],
         })
         key = str(row["acct_id"]) if row["acct_id"] is not None else "unknown"
         account_totals[key] = account_totals.get(key, Decimal(0)) + amount

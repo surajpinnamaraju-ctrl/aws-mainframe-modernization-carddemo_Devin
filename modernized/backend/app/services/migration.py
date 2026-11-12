@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from ..store import Store, utcnow
+from ..store import Store, dollars, utcnow
 
 REC_TYPES = {"C": "customers", "A": "accounts", "X": "card_xrefs",
-             "T": "transactions", "K": "cards"}
+             "T": "transactions", "K": "cards", "B": "tran_cat_balances"}
 
 
 def export_data(store: Store, branch_id: str = "0000",
@@ -38,12 +38,18 @@ def export_data(store: Store, branch_id: str = "0000",
         emit("T", Store.transaction_from(row))
     for row in store.query("SELECT * FROM cards ORDER BY card_num"):
         emit("K", dict(row))
+    for row in store.query(
+            "SELECT * FROM tran_cat_balances ORDER BY acct_id"):
+        emit("B", {"acct_id": row["acct_id"],
+                   "tran_type_cd": row["tran_type_cd"],
+                   "tran_cat_cd": row["tran_cat_cd"],
+                   "tran_cat_bal": dollars(row["bal_cents"])})
     return records
 
 
 def import_data(store: Store, records: list[dict]) -> dict:
     stats = {"read": 0, "customers": 0, "accounts": 0, "xrefs": 0,
-             "transactions": 0, "cards": 0, "errors": 0,
+             "transactions": 0, "cards": 0, "cat_balances": 0, "errors": 0,
              "unknown_types": 0}
     errors: list[dict] = []
     for rec in records:
@@ -105,6 +111,13 @@ def import_data(store: Store, records: list[dict]) -> dict:
                      int(data.get("cvv_cd") or 0), data.get("embossed_name"),
                      data.get("expiration_date"), data.get("active_status")))
                 stats["cards"] += 1
+            elif rec_type == "B":
+                store.execute(
+                    "INSERT OR REPLACE INTO tran_cat_balances VALUES (?,?,?,?)",
+                    (int(data["acct_id"]), data["tran_type_cd"],
+                     int(data["tran_cat_cd"]),
+                     int(Decimal(str(data["tran_cat_bal"])) * 100)))
+                stats["cat_balances"] += 1
             else:
                 stats["unknown_types"] += 1
                 errors.append({"record_type": rec_type, "sequence_num":
